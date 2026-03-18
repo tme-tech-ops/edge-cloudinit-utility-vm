@@ -4,8 +4,12 @@ capabilities:
     description: Service Tag
     value: { get_property: [vm, vm_config, location] }
 
-  vm_name_id:
+  vm_name:
     description: Virtual Machine Name
+    value: { get_attribute: [vm, vm_details, data, alias] }
+
+  vm_name_id:
+    description: Virtual Machine ID Name
     value: { get_attribute: [vm, vm_details, name] }
 
   vm_id:
