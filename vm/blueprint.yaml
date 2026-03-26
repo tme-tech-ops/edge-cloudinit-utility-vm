@@ -1,7 +1,7 @@
 imports:
-  - plugin:edge-plugin
-  - plugin:utilities-plugin?version=>=3.1.3.0
-  - plugin:fabric-plugin?version=>=3.3.2.0
+  - plugin:edge-plugin?version= >=3.3.17.0,<4.0.0.0
+  - plugin:utilities-plugin?version= >=3.1.4.0,<4.0.0.0
+  - plugin:fabric-plugin?version= >=3.4.2.0,<4.0.0.0
 
 dsl_definitions:
 
@@ -17,6 +17,7 @@ dsl_definitions:
         port: 22
       proxy_settings:
         auto_resolve: false
+        enable_socks5: false
         target_id: { get_attribute: [proxy_resolver, _proxy_target_id] }
         target_ip: { get_attribute: [vm, vm_details, name] }
 
