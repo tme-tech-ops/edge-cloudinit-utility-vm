@@ -8,13 +8,22 @@ dsl_definitions:
   ansible_env_vars: &ansible_default_env_vars
     ANSIBLE_HOST_KEY_CHECKING: "False"
     ANSIBLE_INVALID_TASK_ATTRIBUTE_FAILED: "False"
-    ANSIBLE_STDOUT_CALLBACK: json
+    ANSIBLE_STDOUT_CALLBACK: minimal
     ANSIBLE_DEPRECATION_WARNINGS: "False"
+    ANSIBLE_DISPLAY_OK_HOSTS: "False"
+    ANSIBLE_DISPLAY_SKIPPED_HOSTS: "False"
 
   ansible_common_properties: &ansible_common_properties
     timeout: 30
     debug_level: 0
     number_of_attempts: 10
+    # log_stdout=false avoids the slowdown caused by streaming
+    # full ansible stdout through the orchestrator event log
+    # (per plan owner feedback 2026-05-16). Errors and the final
+    # task summary still surface via the playbook return code +
+    # ansible's minimal stdout callback; failures are visible in
+    # event log without the verbose chatter.
+    log_stdout: false
     sensitive_keys:
       - ansible_host
       - ansible_port
