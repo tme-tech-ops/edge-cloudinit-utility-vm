@@ -1,0 +1,9 @@
+---
+- name: Discover VM network info (Linux)
+  hosts: vm
+  become: false
+  gather_facts: true
+  roles:
+    - role: get_vm_info
+      vars:
+        node_instance_id: "{{ node_instance_id }}"

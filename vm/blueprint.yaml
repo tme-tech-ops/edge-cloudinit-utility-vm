@@ -1,25 +1,34 @@
 imports:
   - plugin:edge-plugin?version= >=3.3.17.0,<4.0.0.0
   - plugin:utilities-plugin?version= >=3.1.4.0,<4.0.0.0
-  - plugin:fabric-plugin?version= >=3.4.2.0,<4.0.0.0
+  - plugin:ansible-plugin?version= >=4.1.8.0,<5.0.0.0
 
 dsl_definitions:
 
-  get_vm_info: &get_vm_info
-    implementation: fabric.fabric_plugin.tasks.run_script
-    inputs:
-      script_path: vm/scripts/get_vm_info.sh
-      hide_output: ["stdout"]
-      fabric_env:
-        host_string: { get_attribute: [vm, vm_details, name] }
-        user: { get_input: vm_user_name }
-        key: { get_secret: { get_input: ssh_private_key_secret } }
-        port: 22
-      proxy_settings:
-        auto_resolve: false
-        enable_socks5: false
-        target_id: { get_attribute: [proxy_resolver, _proxy_target_id] }
-        target_ip: { get_attribute: [vm, vm_details, name] }
+  ansible_env_vars: &ansible_default_env_vars
+    ANSIBLE_HOST_KEY_CHECKING: "False"
+    ANSIBLE_INVALID_TASK_ATTRIBUTE_FAILED: "False"
+    ANSIBLE_STDOUT_CALLBACK: json
+    ANSIBLE_DEPRECATION_WARNINGS: "False"
+
+  ansible_common_properties: &ansible_common_properties
+    timeout: 30
+    debug_level: 0
+    number_of_attempts: 10
+    sensitive_keys:
+      - ansible_host
+      - ansible_port
+      - ansible_user
+      - ansible_ssh_private_key_file
+      - ansible_ssh_common_args
+
+  ansible_host_common: &ansible_host_common
+    ansible_user: { get_input: vm_user_name }
+    ansible_become: True
+    ansible_become_user: { get_input: vm_user_name }
+    ansible_ssh_common_args: -o StrictHostKeyChecking=no -o ControlPersist=yes
+    ansible_ssh_private_key_file:
+      get_secret: { get_input: ssh_private_key_secret }
 
 node_templates:
 
@@ -85,13 +94,30 @@ node_templates:
          target: format_serial_ports
 
   vm_info:
-    type: dell.nodes.Root
+    type: dell.nodes.ansible.Executor
+    properties:
+      <<: *ansible_common_properties
+      playbook_path: vm/ansible/get_vm_info.yaml
+      inventory_proxy_settings:
+        ssh:
+          ip: { get_attribute: [vm, vm_details, name] }
+          port: 22
+      sources:
+        all:
+          hosts:
+            vm:
+              <<: *ansible_host_common
+              ansible_host: { get_attribute: [SELF, inventory_proxy_settings, ssh, ip] }
+              ansible_port: { get_attribute: [SELF, inventory_proxy_settings, ssh, port] }
+      ansible_env_vars:
+        <<: *ansible_default_env_vars
+      run_data:
+        node_instance_id: { get_attribute: [SELF, node_instance_id] }
     interfaces:
       dell.interfaces.lifecycle:
-        start:
-          <<: *get_vm_info
-        update:
-          <<: *get_vm_info
+        poststart:
+          implementation: vm/scripts/get_vm_info.py
+          executor: central_deployment_agent
     relationships:
        - type: dell.relationships.depends_on
          target: vm

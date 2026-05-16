@@ -1,0 +1,85 @@
+---
+# Mirrors the legacy vm/scripts/get_vm_info.sh behavior over ansible+SSH.
+# Discovers enp*s0 interfaces, splits into primary / additional / mgmt,
+# writes a JSON blob to /tmp/{node_instance_id}/vm_info.json on the
+# orchestrator (localhost) for the post-step Python script to consume.
+
+- name: Ensure localhost temp dir exists
+  ansible.builtin.file:
+    path: "/tmp/{{ node_instance_id }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  run_once: true
+
+- name: Discover all enp*s0 interfaces (numeric-sorted)
+  ansible.builtin.set_fact:
+    enp_ifaces: >-
+      {{ ansible_interfaces
+         | select('match', '^enp[0-9]+s0$')
+         | list
+         | sort(attribute=None,
+                key=(lambda x: x | regex_replace('^enp([0-9]+)s0$', '\\1') | int)) }}
+
+- name: Fail if no enp*s0 interfaces present
+  ansible.builtin.fail:
+    msg: "No enp*s0 interfaces found on the VM. Cannot determine primary IP."
+  when: enp_ifaces | length == 0
+
+- name: Compute primary / mgmt / additional split
+  ansible.builtin.set_fact:
+    primary_iface: "{{ enp_ifaces[0] }}"
+    mgmt_iface: "{{ enp_ifaces[-1] if (enp_ifaces | length) > 1 else '' }}"
+    additional_ifaces: "{{ enp_ifaces[1:-1] if (enp_ifaces | length) > 2 else [] }}"
+
+- name: Resolve primary IP
+  ansible.builtin.set_fact:
+    primary_ip: "{{ hostvars[inventory_hostname]['ansible_' + primary_iface].ipv4.address | default('') }}"
+
+- name: Fail if primary IP not resolved
+  ansible.builtin.fail:
+    msg: "Could not resolve IPv4 on primary interface {{ primary_iface }}."
+  when: primary_ip == ''
+
+- name: Resolve tap (mgmt) IP
+  ansible.builtin.set_fact:
+    tap_ip: >-
+      {{ (hostvars[inventory_hostname]['ansible_' + mgmt_iface].ipv4.address
+          | default('N/A'))
+         if (mgmt_iface != '' and mgmt_iface != primary_iface)
+         else 'N/A' }}
+
+- name: Build additional NICs map
+  ansible.builtin.set_fact:
+    additional_nics_map: >-
+      {{ dict(additional_ifaces
+              | zip(additional_ifaces
+                    | map('extract', hostvars[inventory_hostname])
+                    | list)) }}
+  when: false   # placeholder — use the loop below for clarity
+
+- name: Initialize additional_nics dict
+  ansible.builtin.set_fact:
+    additional_nics: {}
+
+- name: Populate additional NICs (iface -> ip or N/A)
+  ansible.builtin.set_fact:
+    additional_nics: >-
+      {{ additional_nics
+         | combine({item:
+                    (hostvars[inventory_hostname]['ansible_' + item].ipv4.address
+                     | default('N/A'))}) }}
+  loop: "{{ additional_ifaces }}"
+
+- name: Write VM info JSON to localhost temp file
+  ansible.builtin.copy:
+    content: "{{ {
+                  'primary_iface': primary_iface,
+                  'primary_ip': primary_ip,
+                  'mgmt_iface': mgmt_iface,
+                  'tap_ip': tap_ip,
+                  'additional_nics': additional_nics
+                } | to_nice_json }}"
+    dest: "/tmp/{{ node_instance_id }}/vm_info.json"
+    mode: "0644"
+  delegate_to: localhost

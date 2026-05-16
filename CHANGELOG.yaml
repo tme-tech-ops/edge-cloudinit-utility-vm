@@ -1,0 +1,20 @@
+# Changelog for edge-cloudinit-utility-vm
+2.0.0:
+  - ticket: edge-cloudinit-windows-plan
+    developer: J. Patient
+    description: |
+      Migrate vm_info from fabric-plugin SSH to ansible-plugin.
+      Same Linux behavior end-to-end; lays the foundation for a Windows
+      arm in Phase 2 of the edge-cloudinit-windows plan. Polyglot utility
+      VM in a single blueprint; one node (vm_info) carries the OS-specific
+      transport via ansible inventory selection.
+      Uploaded to DAP as edge-cloudinit-utility-vm-v2 (tenant-temporary
+      blueprint name) during smoke testing; will be promoted to canonical
+      edge-cloudinit-utility-vm at close-out.
+
+1.0.0:
+  - ticket: initial
+    developer: prior author
+    description: |
+      Initial utility VM blueprint used by edge-cloudinit-linux as a
+      ServiceComponent. fabric-plugin SSH for vm_info IP discovery.

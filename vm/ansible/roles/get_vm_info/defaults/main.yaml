@@ -1,0 +1,5 @@
+---
+# Defaults for the get_vm_info role.
+# node_instance_id is required and must be passed in via the playbook's vars
+# (sourced from the blueprint's run_data).
+node_instance_id: ""
