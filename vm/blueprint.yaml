@@ -46,15 +46,25 @@ node_templates:
     properties:
       resource_config: { get_input: cloudinit }
 
+  # Resolves the EO TCP proxy (host + port) used by the orchestrator to
+  # reach this VM's SSH / WinRM endpoint through DDPC's ECANS tunnel.
+  # `edge.nativeedge_plugin.tasks.get_eo_proxy` populates `eo_proxy_url`
+  # and `eo_proxy_port` runtime properties on this node, which the
+  # ansible Executor consumes via inventory_proxy_settings.
   proxy_resolver:
     type: dell.nodes.ApplicationModule
     interfaces:
       dell.interfaces.lifecycle:
-        precreate:
-          implementation: vm/scripts/get_proxy.py
-          executor: central_deployment_agent
+        poststart:
+          implementation: edge.nativeedge_plugin.tasks.get_eo_proxy
+          max_retries: 2
           inputs:
-            service_tag: { get_input: service_tag }
+            serviceTag: { get_input: service_tag }
+            vmRef: { get_attribute: [vm, vm_details, data, alias] }
+            port: 22
+    relationships:
+      - type: dell.relationships.depends_on
+        target: vm
 
   format_serial_ports:
     type: dell.nodes.Root
@@ -109,8 +119,8 @@ node_templates:
       playbook_path: vm/ansible/get_vm_info.yaml
       inventory_proxy_settings:
         ssh:
-          ip: { get_attribute: [vm, vm_details, name] }
-          port: 22
+          ip: { get_attribute: [proxy_resolver, eo_proxy_url] }
+          port: { get_attribute: [proxy_resolver, eo_proxy_port] }
       sources:
         all:
           hosts:
