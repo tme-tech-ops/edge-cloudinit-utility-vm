@@ -19,17 +19,21 @@ dsl_definitions:
     number_of_attempts: 10
     # log_stdout=false avoids the slowdown caused by streaming
     # full ansible stdout through the orchestrator event log
-    # (per plan owner feedback 2026-05-16). Errors and the final
-    # task summary still surface via the playbook return code +
-    # ansible's minimal stdout callback; failures are visible in
-    # event log without the verbose chatter.
+    # (per plan owner feedback 2026-05-16).
     log_stdout: false
     sensitive_keys:
       - ansible_host
-      - ansible_port
       - ansible_user
       - ansible_ssh_private_key_file
       - ansible_ssh_common_args
+    # DAP-native ECANS proxy. auto_resolve lets the plugin pick the
+    # right proxy target based on the deployment's environment
+    # capabilities (ece_service_tag) - no separate get_eo_proxy /
+    # inventory-svc lookup node needed. Same mechanism fabric used
+    # before this migration.
+    proxy_settings:
+      auto_resolve: true
+      enable_socks5: false
 
   ansible_host_common: &ansible_host_common
     ansible_user: { get_input: vm_user_name }
@@ -45,26 +49,6 @@ node_templates:
     type: dell.nodes.CloudInit.CloudConfig
     properties:
       resource_config: { get_input: cloudinit }
-
-  # Resolves the EO TCP proxy (host + port) used by the orchestrator to
-  # reach this VM's SSH / WinRM endpoint through DDPC's ECANS tunnel.
-  # `edge.nativeedge_plugin.tasks.get_eo_proxy` populates `eo_proxy_url`
-  # and `eo_proxy_port` runtime properties on this node, which the
-  # ansible Executor consumes via inventory_proxy_settings.
-  proxy_resolver:
-    type: dell.nodes.ApplicationModule
-    interfaces:
-      dell.interfaces.lifecycle:
-        poststart:
-          implementation: edge.nativeedge_plugin.tasks.get_eo_proxy
-          max_retries: 2
-          inputs:
-            serviceTag: { get_input: service_tag }
-            vmRef: { get_attribute: [vm, vm_details, data, alias] }
-            port: 22
-    relationships:
-      - type: dell.relationships.depends_on
-        target: vm
 
   format_serial_ports:
     type: dell.nodes.Root
@@ -117,17 +101,13 @@ node_templates:
     properties:
       <<: *ansible_common_properties
       playbook_path: vm/ansible/get_vm_info.yaml
-      inventory_proxy_settings:
-        ssh:
-          ip: { get_attribute: [proxy_resolver, eo_proxy_url] }
-          port: { get_attribute: [proxy_resolver, eo_proxy_port] }
       sources:
         all:
           hosts:
             vm:
               <<: *ansible_host_common
-              ansible_host: { get_attribute: [SELF, inventory_proxy_settings, ssh, ip] }
-              ansible_port: { get_attribute: [SELF, inventory_proxy_settings, ssh, port] }
+              ansible_host: { get_attribute: [vm, vm_details, name] }
+              ansible_port: 22
       ansible_env_vars:
         <<: *ansible_default_env_vars
       run_data:
@@ -140,5 +120,3 @@ node_templates:
     relationships:
        - type: dell.relationships.depends_on
          target: vm
-       - type: dell.relationships.depends_on
-         target: proxy_resolver

@@ -56,10 +56,3 @@ capabilities:
     description: Passthrough device configurations
     value: { get_attribute: [vm, vm_config, ports] }
 
-  eo_proxy_url:
-    description: Resolved EO TCP proxy host for this VM (orchestrator to guest SSH/WinRM via ECANS tunnel)
-    value: { get_attribute: [proxy_resolver, eo_proxy_url] }
-
-  eo_proxy_port:
-    description: Resolved EO TCP proxy port for this VM
-    value: { get_attribute: [proxy_resolver, eo_proxy_port] }
