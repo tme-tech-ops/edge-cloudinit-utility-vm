@@ -1,0 +1,4 @@
+1.1.0.4:
+  - ticket: N/A
+    developer: TME Tech Ops
+    description: Return the configured VM name from the vm_name capability using the current VM configuration schema and centralize plugin imports.

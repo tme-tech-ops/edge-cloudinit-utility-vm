@@ -8,6 +8,13 @@ This blueprint can be used stand-alone or deployed as a ServiceComponent
 - Supports multiple disk and network configurations
 - gathers proxy connection and VP IP details
 
+## Compatibility Matrix
+
+| Release | Compatible DDPC EdgeOS Version |
+|---|---|
+| `rel-4.2.0.0` | `4.2.0.0` |
+| `rel-4.3.0.0` | `4.3.0.0` |
+
 ## Requirements
 This blueprint must be deployed with a VM image that supports ssh login to a shell environment via ssh-key authorization. The ssh authorized_keys must be pre-created on the VM. For that reason it is easiest to use this VM with a cloudinit configuration and pass the ssh public key info at runtime to the cloudinit config and the ssh private key for ssh authentication during vm_info.
 

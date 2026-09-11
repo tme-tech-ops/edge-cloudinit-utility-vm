@@ -6,7 +6,7 @@ capabilities:
 
   vm_name:
     description: Virtual Machine Name
-    value: { get_attribute: [vm, vm_details, data, alias] }
+    value: { get_property: [vm, vm_config, name] }
 
   vm_name_id:
     description: Virtual Machine ID Name
