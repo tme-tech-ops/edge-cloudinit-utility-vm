@@ -1,195 +1,405 @@
 inputs:
 
+  # A parent blueprint (edge-cloudinit-linux, rke2-tech-ops multi-node) sets
+  # every input below. Only the inputs the edge-plugin can change on a running
+  # VM are updatable (allow_update: true); a VM's identity, OS, cloud-init and
+  # firmware are set at first boot and need a new VM.
+
+  # ---------------- Virtual Machine ----------------
+
   service_tag:
     type: string
     required: true
+    hidden: false
+    allow_update: false
     display_label: Endpoint Service Tag
-    description: Service tag of the NativeEdge Endpoint where the VM will be deployed.
-
-  vm_user_name:
-    type: string
-    display_label: VM Username
-    description: Username for SSH access to the VM.
-    default: edgeuser
-
-  ssh_private_key_secret:
-    type: string
-    display_label: SSH Private Key Secret
-    description: Name of the secret containing the SSH private key.
-    required: true
-
-  vm_hostname:
-    type: string
-    display_label: VM Hostname
-    description: Hostname of the Virtual Machine.
-    default: edgehost
+    description: Service tag of the NativeEdge Endpoint where the VM runs.
+    constraints:
+      - min_length: 1
+        error_message: An Endpoint service tag is required.
+    display:
+      group: vm_basic
+      index: 1
 
   name:
     type: string
     required: true
+    hidden: false
+    allow_update: false
     display_label: Virtual Machine Name
-    description: Name of the Virtual Machine.
+    description: Name of the Virtual Machine on the Endpoint.
+    constraints:
+      - min_length: 1
+        error_message: A VM name is required.
+    display:
+      group: vm_basic
+      index: 2
 
   image:
     type: string
     required: true
-    display_label: Image ID
-    description: Image artifact ID for the VM OS image.
+    hidden: false
+    allow_update: false
+    display_label: Image Artifact ID
+    description: |
+      Artifact ID of the uploaded OS image (the parent blueprint's binary
+      image). The OS of a running VM can't change.
+    constraints:
+      - min_length: 1
+        error_message: An image artifact ID is required.
+    display:
+      group: vm_basic
+      index: 3
 
   os_type:
     type: string
+    hidden: false
+    allow_update: false
     display_label: OS Type
-    description: The virtual machine Operating System.
+    description: Operating system of the VM image.
     default: UBUNTU22.04
+    constraints:
+      - valid_values:
+          - UBUNTU18.04
+          - UBUNTU20.04
+          - UBUNTU22.04
+          - UBUNTU22.10
+          - UBUNTU24.04
+          - DEBIAN-32B
+          - DEBIAN-64B
+          - RHEL9
+          - SUSE-SLES15
+          - LINUX-OTHER
+        error_message: Select one of the listed OS types.
+    display:
+      group: vm_basic
+      index: 4
+
+  vm_hostname:
+    type: string
+    hidden: false
+    allow_update: false
+    display_label: VM Hostname
+    description: |
+      Hostname of the VM, as set by cloud-init at first boot. Changing it
+      needs a new VM.
+    default: edgehost
+    constraints:
+      - min_length: 1
+        error_message: A hostname is required.
+    display:
+      group: vm_basic
+      index: 5
+
+  vm_user_name:
+    type: string
+    hidden: false
+    allow_update: false
+    display_label: VM Username
+    description: User for SSH access to the VM (created by cloud-init).
+    default: edgeuser
+    constraints:
+      - min_length: 1
+        error_message: A username is required.
+    display:
+      group: vm_basic
+      index: 6
+
+  # The NAME of a secret, not the key: the parent's RSAKey node creates the
+  # secret and passes its name. Not a secret_key input, because that type
+  # validates a secret schema the RSAKey secret doesn't carry.
+  ssh_private_key_secret:
+    type: string
+    required: true
+    hidden: false
+    allow_update: false
+    display_label: SSH Private Key Secret Name
+    description: |
+      Name of the secret that holds the SSH private key for the VM user. Used
+      to read the VM's IP addresses after install and after an update.
+    constraints:
+      - min_length: 1
+        error_message: The SSH private key secret name is required.
+    display:
+      group: vm_basic
+      index: 7
+
+  cloudinit:
+    type: dict
+    required: false
+    hidden: false
+    allow_update: false
+    display_label: Cloud-Init Configuration
+    description: |
+      Cloud-init configuration (a dict) applied at first boot. Built by the
+      parent blueprint. Cloud-init doesn't run again on a running VM, so this
+      can't be updated.
+    default: {}
+    display:
+      group: vm_basic
+      index: 8
+
+  # ---------------- Resources ----------------
 
   cpu:
     type: integer
+    hidden: false
+    allow_update: true
     display_label: vCPUs
-    description: Number of virtual CPUs.
+    description: |
+      Number of virtual CPUs. Updatable; the VM reboots to apply the change.
     default: 2
+    constraints:
+      - greater_or_equal: 1
+        error_message: At least 1 vCPU is required.
+    display:
+      group: vm_resources
+      index: 1
 
   memory:
     type: string
+    hidden: false
+    allow_update: true
     display_label: Memory Size
-    description: Memory size with unit.
+    description: |
+      Memory with unit, for example 8GB. Updatable; the VM reboots to apply
+      the change.
     default: 4GB
+    constraints:
+      - pattern: '\d+(\.\d+)?(KB|MB|GB|TB|PB|EB|ZB|YB)'
+        error_message: |
+          Memory size must be a number followed by a unit [KB,MB,GB,TB,PB,EB,ZB,YB].
+          Example: 4GB
+    display:
+      group: vm_resources
+      index: 2
 
   storage:
     type: string
+    hidden: false
+    allow_update: true
     display_label: OS Disk Size
-    description: OS disk size with unit.
+    description: |
+      OS disk size with unit, for example 50GB. Updatable to a larger size
+      only (the Endpoint refuses to shrink a disk); the VM reboots and the
+      root file system grows at boot.
     default: 50GB
+    constraints:
+      - pattern: '\d+(\.\d+)?(KB|MB|GB|TB|PB|EB|ZB|YB)'
+        error_message: |
+          Disk size must be a number followed by a unit [KB,MB,GB,TB,PB,EB,ZB,YB].
+          Example: 50GB
+    display:
+      group: vm_resources
+      index: 3
 
   disk:
     type: string
     required: true
+    hidden: false
+    allow_update: false
     display_label: Datastore Path
-    description: Datastore path on the target Endpoint.
+    description: Datastore path on the Endpoint for the OS disk, for example /DataStore0.
+    constraints:
+      - min_length: 1
+        error_message: A datastore path is required.
+    display:
+      group: vm_resources
+      index: 4
 
   disk_controller:
     type: string
+    hidden: false
+    allow_update: false
     display_label: Disk Controller
-    description: Disk controller type.
+    description: |
+      Controller of the OS disk. Changing it on a running VM can stop the
+      guest from booting, so it can't be updated.
     default: VIRTIO
     constraints:
       - valid_values: [VIRTIO, SATA, SCSI]
+        error_message: Select VIRTIO, SATA or SCSI.
+    display:
+      group: vm_resources
+      index: 5
 
-  hardware_options.vTPM:
-    type: boolean
-    display_label: vTPM
-    description: Enable vTPM.
-    default: false
-
-  hardware_options.secure_boot:
-    type: boolean
-    display_label: Secure Boot
-    description: Enable secure boot.
-    default: false
+  additional_disks:
+    type: list
+    item_type: dict
+    hidden: false
+    allow_update: true
+    display_label: Additional Disks
+    description: |
+      Additional virtual disks, each {name, disk, storage, storage_unit}
+      (edge-plugin format). Updatable: add a disk, grow one, or remove one
+      (removing a disk deletes it and its data). The guest doesn't partition
+      or mount them.
+    default: []
+    display:
+      group: vm_resources
+      index: 6
 
   hardware_options.firmware_type:
     type: string
+    hidden: false
+    allow_update: false
     display_label: Firmware Type
-    description: Firmware type for the VM.
+    description: Firmware of the VM (BIOS or UEFI). Set at creation.
     default: BIOS
     constraints:
       - valid_values: [BIOS, UEFI]
+        error_message: Select BIOS or UEFI.
+    display:
+      group: vm_resources
+      index: 7
 
-  enable_management:
+  hardware_options.secure_boot:
     type: boolean
-    display_label: Enable Management
-    description: Enable management tap interface.
-    default: true
+    hidden: false
+    allow_update: false
+    display_label: Secure Boot
+    description: Enable Secure Boot (UEFI only). Set at creation.
+    default: false
+    constraints:
+      - valid_values: [true, false]
+        error_message: Must be true or false.
+    display:
+      group: vm_resources
+      index: 8
+
+  hardware_options.vTPM:
+    type: boolean
+    hidden: false
+    allow_update: false
+    display_label: vTPM
+    description: Add a virtual TPM. Set at creation.
+    default: false
+    constraints:
+      - valid_values: [true, false]
+        error_message: Must be true or false.
+    display:
+      group: vm_resources
+      index: 9
+
+  # ---------------- Network ----------------
 
   network_settings:
     type: list
+    item_type: dict
+    hidden: false
+    allow_update: true
     display_label: Network Settings
-    description: Pre-built network settings for the VM.
+    description: |
+      VM NICs in edge-plugin format, each {name, segment_name, port_fwd_rules},
+      built by the parent blueprint. Updatable: move a NIC to another segment
+      or change its NAT port-forward rules (the VM reboots). The guest's IP
+      settings come from cloud-init and don't change.
     default: []
+    display:
+      group: vm_network
+      index: 1
+
+  enable_management:
+    type: boolean
+    hidden: false
+    allow_update: false
+    display_label: Enable Management NIC
+    description: |
+      Add the management (tap) NIC that the Endpoint proxy uses to reach the
+      VM. Must stay enabled for the VM's IP addresses to be read.
+    default: true
+    constraints:
+      - valid_values: [true, false]
+        error_message: Must be true or false.
+    display:
+      group: vm_network
+      index: 2
+
+  # ---------------- Devices and Boot ----------------
 
   usb:
     type: list
     item_type: string
-    hidden: true
-    allow_update: false
-    display_label: USB Devices List
-    description: |
-      A list of USB logical names to pass through to the Virtual Machine.
-      Valid values are "USB-1" to "USB-10"
-      Please make sure to select the USB port where USB device is connected.
     required: false
+    hidden: false
+    allow_update: true
+    display_label: USB Devices
+    description: |
+      USB logical names to pass through, "USB-1" to "USB-10". Updatable; the
+      VM reboots.
     default: []
+    display:
+      group: vm_devices
+      index: 1
 
   serial_port:
     type: list
     item_type: string
-    hidden: true
-    allow_update: false
-    display_label: Serial Port
-    description: |
-      Serial port passthrough.
-      Please make sure to select the port where required device is connected.
-      Example:
-        - {"port": "COM-1"}
-        - {"port": "COM-2"}
     required: false
+    hidden: false
+    allow_update: false
+    display_label: Serial Ports
+    description: |
+      Serial ports to pass through, as <port>_<mode>, for example COM-1_RS-232.
+      Set at creation.
     default: []
+    display:
+      group: vm_devices
+      index: 2
 
   gpu:
     type: list
     item_type: string
-    hidden: true
+    required: false
+    hidden: false
     allow_update: false
     display_label: GPU Passthrough
     description: |
-      A list of GPU logical names.
-      Please make sure to select the GPU that is currently available in your
-      Endpoint. A list of GPU logical names available for your endpoint can
-      be found in the NativeEdge UI under Endpoints / Hardware / Peripherals
-    required: false
+      GPU logical names to pass through (Endpoints / Hardware / Peripherals in
+      the NativeEdge UI). Set at creation.
     default: []
+    display:
+      group: vm_devices
+      index: 3
 
   video:
     type: list
     item_type: string
-    hidden: true
+    required: false
+    hidden: false
     allow_update: false
     display_label: Video Passthrough
-    description: |
-      Video passthrough. A list of Video logical names (string).
-      E.g. ['onboarded-controller']
-    required: false
+    description: Video controller logical names, for example onboard controller. Set at creation.
     default: []
+    display:
+      group: vm_devices
+      index: 4
 
   pcie:
     type: list
     item_type: string
+    required: false
     hidden: false
     allow_update: false
     display_label: PCIe Passthrough
-    description: |
-      PCIe passthrough. A list of PCIe logical names (string).
-      E.g. ['SUNIX Co., Ltd. Multiport serial controller']
-    required: false
+    description: PCIe device logical names to pass through. Set at creation.
     default: []
-
-  cloudinit:
-    type: dict
-    display_label: Cloud Init Config
-    description: Pre-built cloud-init configuration dict.
-    required: false
-    default: {}
+    display:
+      group: vm_devices
+      index: 5
 
   iso_files:
     type: list
     item_type: string
+    required: false
     hidden: false
     allow_update: false
     display_label: ISO Files
-    description: |
-      List ISO files (references to catalog) to be downloaded before
-      Virtual Machine provisioning.
+    description: ISO files (catalog references) to download before the VM is created.
     default: []
-    required: false
+    display:
+      group: vm_devices
+      index: 6
 
   boot_order:
     type: list
@@ -199,12 +409,9 @@ inputs:
     allow_update: false
     display_label: Boot Order
     description: |
-      Boot order of the Virtual Machine.
-      If empty no changes will be made.
+      Boot order of the VM, from hd, cdrom and network. Empty keeps the
+      Endpoint default.
     default: []
-
-  additional_disks:
-    type: list
-    display_label: Additional Disks
-    description: Pre-built additional disk configurations.
-    default: []
+    display:
+      group: vm_devices
+      index: 7

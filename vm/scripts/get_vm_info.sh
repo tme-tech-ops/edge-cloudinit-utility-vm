@@ -28,7 +28,6 @@ if [ -z "$VM_IP" ]; then
   exit 1
 fi
 ctx logger info "Primary (${PRIMARY_IFACE}) IP: ${VM_IP}"
-ctx instance runtime-properties capabilities.vm_public_ip "$VM_IP"
 
 # --- Additional NICs ---
 ADDITIONAL_ENTRIES=()
@@ -38,19 +37,24 @@ for iface in "${ADDITIONAL_IFACES[@]}"; do
   ADDITIONAL_ENTRIES+=("${iface}:${ip}")
 done
 
+# A JSON list of "<iface>:<ip>", or "N/A" without additional NICs.
 if [ ${#ADDITIONAL_ENTRIES[@]} -eq 0 ]; then
-  ctx instance runtime-properties capabilities.vm_add_nics_ips "N/A"
+  ADD_NICS='"N/A"'
 else
   RESULT=$(printf '"%s",' "${ADDITIONAL_ENTRIES[@]}")
-  ctx instance runtime-properties capabilities.vm_add_nics_ips "[${RESULT%,}]"
+  ADD_NICS="[${RESULT%,}]"
 fi
 
 # --- Management / Tap interface ---
+TAP_IP="N/A"
 if [ "$MGMT_IFACE" != "$PRIMARY_IFACE" ]; then
   TAP_IP=$(ip -4 a s "$MGMT_IFACE" | awk '/inet/ {print $2}' | cut -d'/' -f1)
   [ -z "$TAP_IP" ] && TAP_IP="N/A"
   ctx logger info "Tap interface (${MGMT_IFACE}) IP: ${TAP_IP}"
-  ctx instance runtime-properties capabilities.tap_ip "$TAP_IP"
-else
-  ctx instance runtime-properties capabilities.tap_ip "N/A"
 fi
+
+# One top-level property holding the whole dict (ctx reads an argument that
+# starts with @ as JSON). Nested writes (capabilities.vm_public_ip) are not
+# saved when this runs as a deployment-update operation, so the IPs would go
+# stale after an update.
+ctx instance runtime-properties capabilities "@{\"vm_public_ip\": \"${VM_IP}\", \"vm_add_nics_ips\": ${ADD_NICS}, \"tap_ip\": \"${TAP_IP}\"}"

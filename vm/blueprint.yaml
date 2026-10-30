@@ -1,5 +1,8 @@
 dsl_definitions:
 
+  # Reads the VM's IP addresses over SSH through the Endpoint proxy. Runs at
+  # install (start) and after a deployment update (update), so the IP
+  # capabilities follow a segment change.
   get_vm_info: &get_vm_info
     implementation: fabric.fabric_plugin.tasks.run_script
     inputs:
@@ -16,12 +19,34 @@ dsl_definitions:
         target_id: { get_attribute: [proxy_resolver, _proxy_target_id] }
         target_ip: { get_attribute: [vm, vm_details, name] }
 
+  # For nodes whose settings only apply when the VM is created: they never
+  # drift, so a deployment update never reinstalls them.
+  no_drift: &no_drift
+    implementation: vm/scripts/no_drift.py
+    executor: central_deployment_agent
+
 node_templates:
+
+  # Refuses a direct update of a utility deployment that a parent blueprint
+  # manages (see vm/scripts/update_guard.py). Its check_drift fails the
+  # update in the drift-check phase, before any node changes. No
+  # relationships, so adding it to a running deployment changes no other node.
+  update_guard:
+    type: dell.nodes.Root
+    interfaces:
+      dell.interfaces.lifecycle:
+        check_drift:
+          implementation: vm/scripts/update_guard.py
+          executor: central_deployment_agent
 
   cloudinit:
     type: dell.nodes.CloudInit.CloudConfig
     properties:
       resource_config: { get_input: cloudinit }
+    interfaces:
+      dell.interfaces.lifecycle:
+        # Cloud-init only runs at first boot.
+        check_drift: *no_drift
 
   proxy_resolver:
     type: dell.nodes.ApplicationModule
@@ -33,6 +58,8 @@ node_templates:
           inputs:
             service_tag: { get_input: service_tag }
 
+  # Serial ports are set at creation (serial_port can't be updated). Writes
+  # runtime properties only, so there is nothing to undo on uninstall.
   format_serial_ports:
     type: dell.nodes.Root
     interfaces:
@@ -42,6 +69,7 @@ node_templates:
           executor: central_deployment_agent
           inputs:
             serial_port: { get_input: serial_port }
+        check_drift: *no_drift
 
   vm:
     type: dell.nodes.nativeedge.template.NativeEdgeVM
@@ -73,12 +101,28 @@ node_templates:
         iso_files: { get_input: iso_files }
         boot_order: { get_input: boot_order }
         additional_disks: { get_input: additional_disks }
+    interfaces:
+      dell.interfaces.lifecycle:
+        # Replaces the edge-plugin's check_drift, which always reports drift
+        # (so every update sent the VM a no-op update, and the deployment
+        # stayed "drifted" afterwards).
+        check_drift:
+          implementation: vm/scripts/vm_check_drift.py
+          executor: central_deployment_agent
+        # The edge-plugin's update_config/update_apply apply the change; this
+        # checks the VM record afterwards. update_postapply, not postupdate:
+        # the update workflow runs postupdate before update_apply.
+        update_postapply:
+          implementation: vm/scripts/vm_postupdate.py
+          executor: central_deployment_agent
     relationships:
        - type: dell.relationships.depends_on
          target: cloudinit
        - type: dell.relationships.depends_on
          target: format_serial_ports
 
+  # No check_drift on purpose: the update workflow runs its update after the
+  # VM it depends on was updated, which refreshes the IP capabilities.
   vm_info:
     type: dell.nodes.Root
     interfaces:
