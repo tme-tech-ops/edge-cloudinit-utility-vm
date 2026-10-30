@@ -13,13 +13,61 @@ imports:
   - vm/outputs.yaml
   - vm/blueprint.yaml
 
+input_groups:
+  vm_basic:
+    display_label: Virtual Machine
+    collapsible: true
+    index: 0
+    inputs:
+      - service_tag
+      - name
+      - image
+      - os_type
+      - vm_hostname
+      - vm_user_name
+      - ssh_private_key_secret
+      - cloudinit
+  vm_resources:
+    display_label: Resources
+    collapsible: true
+    index: 1
+    inputs:
+      - cpu
+      - memory
+      - storage
+      - disk
+      - disk_controller
+      - additional_disks
+      - hardware_options.firmware_type
+      - hardware_options.secure_boot
+      - hardware_options.vTPM
+  vm_network:
+    display_label: Network
+    collapsible: true
+    index: 2
+    inputs:
+      - network_settings
+      - enable_management
+  vm_devices:
+    display_label: Devices and Boot
+    collapsible: true
+    index: 3
+    inputs:
+      - usb
+      - serial_port
+      - gpu
+      - video
+      - pcie
+      - iso_files
+      - boot_order
+
 labels:
   csys-obj-type:
     values:
       - environment
   version:
     values:
-      - "1.1.0.4"
+      - "1.2.0.0"
 
 blueprint_labels:
   csys-blueprint-type:

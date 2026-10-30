@@ -8,12 +8,26 @@ This blueprint can be used stand-alone or deployed as a ServiceComponent
 - Supports multiple disk and network configurations
 - gathers proxy connection and VP IP details
 
+## Versions and upload
+
+Upload this blueprint with the name **`edge-cloudinit-utility-vm`** and the
+**revision equal to its version** (top of `CHANGELOG.md`, also the `version`
+label), for example `1.2.0.0`. Parent blueprints pin the exact revision they
+were tested with (`Utility VM Blueprint Revision` in edge-cloudinit-linux), so
+uploading a newer revision doesn't change running VMs until their parent is
+updated to it.
+
+Versions are `MAJOR.MINOR.PATCH.BUILD`. Within a MAJOR the inputs and
+capabilities only grow (MINOR adds, PATCH fixes, BUILD is docs only), so a
+parent built for 1.2 works with any later 1.x revision.
+
 ## Compatibility Matrix
 
-| Release | Compatible DDPC EdgeOS Version |
-|---|---|
-| `rel-4.2.0.0` | `4.2.0.0` |
-| `rel-4.3.0.0` | `4.3.0.0` |
+| Release | Compatible DDPC EdgeOS Version | Blueprint version |
+|---|---|---|
+| `rel-4.2.0.0` | `4.2.0.0` | 1.1.0.x |
+| `rel-4.3.0.0` | `4.3.0.0` | 1.1.0.x |
+| (next) | `4.3.0.0` | 1.2.0.0 |
 
 ## Requirements
 This blueprint must be deployed with a VM image that supports ssh login to a shell environment via ssh-key authorization. The ssh authorized_keys must be pre-created on the VM. For that reason it is easiest to use this VM with a cloudinit configuration and pass the ssh public key info at runtime to the cloudinit config and the ssh private key for ssh authentication during vm_info.
@@ -28,6 +42,40 @@ This blueprint must be deployed with a VM image that supports ssh login to a she
 **Requirements for edge-cloudinit-linux blueprint**
 - when using with the `edge-cloud-init-linux` top-level blueprint, by default it looks for the blueprint named `edge-cloudinit-utility-vm`. If uploading this utility blueprint with a different name, make sure to update `Utility VM Blueprint Name` input accordingly
 
+## Updating a deployment
+
+**A utility deployment created by a parent blueprint** (edge-cloudinit-linux,
+rke2-tech-ops multi-node; label `csys-component=true`) **is updated through its
+parent.** An update started on the utility deployment itself that changes
+something fails with "This VM is managed by the parent deployment ..." and the
+VM stays as it is, because the parent's next update would send its own values
+back. A utility deployment left in "failed update" while an app is deployed on
+it can't be healed by its parent (DAP refuses the heal); repair it with
+**Heal** and **Force** on the utility deployment itself, or an update with no
+changes and Force (allowed, because it changes nothing).
+
+A standalone utility deployment can be updated directly. Only these inputs can
+change on a running VM; everything else is set when the VM is created:
+
+| Input | Change | Notes |
+|---|---|---|
+| `cpu`, `memory` | up or down | The VM reboots. |
+| `storage` | grow only | The Endpoint refuses to shrink a disk. The root file system grows at boot. |
+| `network_settings` | segment, NAT port-forward rules | The VM reboots and keeps its MAC; with DHCP it gets an address on the new segment. Don't add or remove NICs (the guest's netplan matches NICs by name). |
+| `usb` | add or remove | The VM reboots. |
+| `additional_disks` | add, grow, remove | Removing a disk deletes it and its data. |
+
+- A disk can only grow. An update with a smaller disk fails with "Disks can
+  only grow" and the VM stays as it is, with or without "Run automatic
+  reinstall".
+- Keep **Run automatic reinstall** unchecked anyway: if the Endpoint refuses a
+  change this blueprint doesn't check for, the orchestrator would delete and
+  recreate the VM.
+- If an app is deployed on the VM (it is the "Deploy On" target), tick
+  **Force**: DAP refuses updates of a deployment that others depend on.
+- After a failed update, the deployment keeps the new input values. Run another
+  update with the values the VM really has.
+
 ## Example ServiceComponent definition for an upstream blueprint
 
 ```
@@ -39,6 +87,7 @@ node_templates:
         blueprint:
           external_resource: true
           id: { get_input: utility_blueprint_id }
+          revision_id: { get_input: utility_blueprint_revision }
         deployment:
           inputs:
             service_tag: { get_environment_capability: ece_service_tag }
