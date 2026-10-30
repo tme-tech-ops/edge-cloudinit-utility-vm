@@ -112,7 +112,11 @@ def problem():
 
 def main():
     op = ctx.operation.name.split(".")[-1]
-    reason = problem()
+    try:
+        reason = problem()
+    except Exception as err:  # API not reachable: don't block the update
+        ctx.logger.warning(f"update guard: could not check this update ({err})")
+        reason = None
     if op == "check_drift":
         if reason:
             ctx.logger.warning(f"update guard: {reason}")
