@@ -148,4 +148,6 @@ def main():
         ctx.returns(None)
 
 
-main()
+# update_guard.py loads this file for canonical().
+if __name__ == "__main__":
+    main()

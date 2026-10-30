@@ -49,9 +49,10 @@ rke2-tech-ops multi-node; label `csys-component=true`) **is updated through its
 parent.** An update started on the utility deployment itself that changes
 something fails with "This VM is managed by the parent deployment ..." and the
 VM stays as it is, because the parent's next update would send its own values
-back. An update with no change is allowed: use it, with **Force**, to repair a
-utility deployment left in "failed update" when an app is deployed on it (the
-parent can't heal it then).
+back. A utility deployment left in "failed update" while an app is deployed on
+it can't be healed by its parent (DAP refuses the heal); repair it with
+**Heal** and **Force** on the utility deployment itself, or an update with no
+changes and Force (allowed, because it changes nothing).
 
 A standalone utility deployment can be updated directly. Only these inputs can
 change on a running VM; everything else is set when the VM is created:

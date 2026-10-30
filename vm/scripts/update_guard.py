@@ -4,8 +4,8 @@ Refused updates:
 - a user's update that changes a deployment a parent blueprint manages (label
   csys-component=true). The parent's next update would undo it. An update the
   parent starts (it runs while the parent's own update runs) is allowed, and so
-  is a user's update that changes nothing: it repairs a deployment left in
-  "failed update" (the parent can't heal it while an app is deployed on it);
+  is a user's update that doesn't change the VM: it repairs a deployment left
+  in "failed update" (the parent can't heal it while an app is deployed on it);
 - in a standalone deployment, a disk that would shrink (the Endpoint refuses).
 
 The VM's own check_drift (vm_check_drift.py) leaves the VM alone in these cases.
@@ -50,19 +50,23 @@ def updating(client, deployment_id):
                                                 _include=["workflow_id", "status"]))
 
 
-def changes_something(client):
-    """Does the running update of this deployment change inputs or blueprint?"""
-    for update in client.deployment_updates.list(deployment_id=ctx.deployment.id,
-                                                 _sort="-created_at", _size=10):
-        if update.get("execution_id") != ctx.execution_id:
-            continue
-        old_bp = (update.get("old_blueprint_id"), update.get("old_blueprint_version"))
-        new_bp = (update.get("new_blueprint_id"), update.get("new_blueprint_version"))
-        new_inputs = update.get("new_inputs") or {}
-        old_inputs = update.get("old_inputs") or {}
-        changed = {k for k in new_inputs if new_inputs.get(k) != old_inputs.get(k)}
-        return bool(changed) or (new_bp[0] is not None and new_bp != old_bp)
-    return True  # can't tell: treat it as a change
+def vm_would_change(client):
+    """Would this update change the VM? Compares the vm node's properties
+    (already evaluated with the update's inputs) with the config the edge-plugin
+    last applied, the same way the VM's own check_drift does."""
+    try:
+        path = ctx.download_resource("vm/scripts/vm_check_drift.py")
+        check = {"__name__": "vm_check_drift"}
+        exec(compile(open(path).read(), path, "exec"), check)
+        node = client.nodes.get(ctx.deployment.id, "vm", evaluate_functions=True)
+        vms = client.node_instances.list(deployment_id=ctx.deployment.id, node_id="vm")
+        applied = (vms[0].runtime_properties or {}).get("expected_configuration") if vms else None
+        if not applied:
+            return True
+        return check["canonical"](node.properties["vm_config"]) != check["canonical"](applied)
+    except Exception as err:  # can't tell: treat it as a change
+        ctx.logger.warning(f"update guard: could not compare the VM config ({err})")
+        return True
 
 
 def shrinks(client):
@@ -94,8 +98,8 @@ def problem():
     if ("csys-component", "true") in [(k, v.lower()) for k, v in labels]:
         if any(updating(client, p) for p in parents):
             return None  # started by the parent: never fail it
-        if not changes_something(client):
-            return None  # a repair: changes nothing
+        if not vm_would_change(client):
+            return None  # changes nothing on the VM: a repair (or the parent's value back)
         return (f"This VM is managed by the parent deployment {', '.join(parents) or '(unknown)'}. "
                 "Update the parent deployment instead: a change made here directly is undone "
                 "by the parent's next update. Nothing was changed.")
