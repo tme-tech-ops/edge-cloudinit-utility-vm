@@ -22,10 +22,16 @@ built for 1.1 work with it.
   `vm_add_nics` is now a list (or "N/A") instead of a string.
 - Added: `cloudinit` and `format_serial_ports` report no drift (they only
   apply when the VM is created), so an update never reinstalls them.
-- Added: an update guard. A utility deployment created by a parent blueprint
-  (label `csys-component=true`) refuses updates started by a user, before
-  anything changes: update the parent instead. Standalone deployments and
-  updates started by the parent pass.
+- Added: refused updates fail with the reason and leave the VM as it is. A
+  user's update that changes a utility deployment created by a parent
+  blueprint (label `csys-component=true`) is refused: update the parent
+  instead. An update with no change is allowed, to repair a deployment left
+  in "failed update". In a standalone deployment, a disk that would shrink is
+  refused (the Endpoint can't shrink disks). The VM's drift check skips the VM
+  in these cases and `update_guard` fails the update; with "Run automatic
+  reinstall" the guard is reinstalled and fails the same way. Updates started
+  by the parent never fail here, so a refused change can never make the
+  parent recreate the VM.
 - Changed: inputs have display groups, labels, descriptions and constraints
   with error messages. Only inputs the edge-plugin can change on a running VM
   are updatable: vCPUs, memory, OS disk size (grow only), network settings

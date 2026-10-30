@@ -19,6 +19,13 @@ dsl_definitions:
         target_id: { get_attribute: [proxy_resolver, _proxy_target_id] }
         target_ip: { get_attribute: [vm, vm_details, name] }
 
+  update_guard: &update_guard
+    implementation: vm/scripts/update_guard.py
+    executor: central_deployment_agent
+    inputs:
+      storage: { get_input: storage }
+      additional_disks: { get_input: additional_disks }
+
   # For nodes whose settings only apply when the VM is created: they never
   # drift, so a deployment update never reinstalls them.
   no_drift: &no_drift
@@ -27,17 +34,17 @@ dsl_definitions:
 
 node_templates:
 
-  # Refuses a direct update of a utility deployment that a parent blueprint
-  # manages (see vm/scripts/update_guard.py). Its check_drift fails the
-  # update in the drift-check phase, before any node changes. No
-  # relationships, so adding it to a running deployment changes no other node.
+  # Makes a refused update (a user's update of a VM its parent manages, or a
+  # disk shrink) fail with the reason, while the VM stays as it is (see
+  # vm/scripts/update_guard.py). No relationships, so adding it to a running
+  # deployment changes no other node.
   update_guard:
     type: dell.nodes.Root
     interfaces:
       dell.interfaces.lifecycle:
-        check_drift:
-          implementation: vm/scripts/update_guard.py
-          executor: central_deployment_agent
+        create: *update_guard
+        check_drift: *update_guard
+        update: *update_guard
 
   cloudinit:
     type: dell.nodes.CloudInit.CloudConfig

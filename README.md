@@ -46,9 +46,12 @@ This blueprint must be deployed with a VM image that supports ssh login to a she
 
 **A utility deployment created by a parent blueprint** (edge-cloudinit-linux,
 rke2-tech-ops multi-node; label `csys-component=true`) **is updated through its
-parent.** An update started on the utility deployment itself is refused before
-anything changes ("This VM is managed by the parent deployment ..."), because
-the parent's next update would send its own values back and undo it.
+parent.** An update started on the utility deployment itself that changes
+something fails with "This VM is managed by the parent deployment ..." and the
+VM stays as it is, because the parent's next update would send its own values
+back. An update with no change is allowed: use it, with **Force**, to repair a
+utility deployment left in "failed update" when an app is deployed on it (the
+parent can't heal it then).
 
 A standalone utility deployment can be updated directly. Only these inputs can
 change on a running VM; everything else is set when the VM is created:
@@ -61,9 +64,12 @@ change on a running VM; everything else is set when the VM is created:
 | `usb` | add or remove | The VM reboots. |
 | `additional_disks` | add, grow, remove | Removing a disk deletes it and its data. |
 
-- Keep **Run automatic reinstall** unchecked. If the Endpoint refuses a change
-  (for example a smaller disk), the update fails and the VM is unchanged; with
-  automatic reinstall on, the orchestrator would delete and recreate the VM.
+- A disk can only grow. An update with a smaller disk fails with "Disks can
+  only grow" and the VM stays as it is, with or without "Run automatic
+  reinstall".
+- Keep **Run automatic reinstall** unchecked anyway: if the Endpoint refuses a
+  change this blueprint doesn't check for, the orchestrator would delete and
+  recreate the VM.
 - If an app is deployed on the VM (it is the "Deploy On" target), tick
   **Force**: DAP refuses updates of a deployment that others depend on.
 - After a failed update, the deployment keeps the new input values. Run another

@@ -1,62 +1,124 @@
-"""Refuses a direct update of a utility deployment that a parent manages.
+"""Makes a refused update fail visibly, without touching the VM.
 
-A parent blueprint (edge-cloudinit-linux, rke2-tech-ops multi-node) creates
-this deployment as a ServiceComponent, which labels it csys-component=true and
-csys-obj-parent=<parent>. The parent owns its inputs: a change made here
-directly is undone by the parent's next update, which sends the parent's values
-back (one more reboot). So an update of such a deployment fails here, in the
-drift-check phase, before any node changes, unless the parent is running an
-update at that moment (the parent's component started this one). The update
-record can't tell them apart: it carries the user who started the parent's
-update.
+Refused updates:
+- a user's update that changes a deployment a parent blueprint manages (label
+  csys-component=true). The parent's next update would undo it. An update the
+  parent starts (it runs while the parent's own update runs) is allowed, and so
+  is a user's update that changes nothing: it repairs a deployment left in
+  "failed update" (the parent can't heal it while an app is deployed on it);
+- in a standalone deployment, a disk that would shrink (the Endpoint refuses).
 
-Passes: updates while the parent runs an update, the check_drift workflow, and
-standalone utility deployments (no csys-component label). Read-only.
+The VM's own check_drift (vm_check_drift.py) leaves the VM alone in these cases.
+This node makes the reason visible: its check_drift reports it as drift, so its
+update operation runs and fails with the reason. With "Run automatic reinstall"
+this node is reinstalled instead, and its create fails with the same reason.
+Either way the update fails and nothing else changes. Updates a parent starts
+never fail here: the parent would otherwise reinstall the whole VM deployment.
+
+The same script runs as check_drift, update and create (ctx.operation.name).
 """
+import json
+import re
+
 from dell import ctx
 from dell.exceptions import NonRecoverableError
 from dell.manager import get_rest_client
+from dell.state import ctx_parameters as inputs
 
 ACTIVE = ("pending", "queued", "started", "scheduled")
+UNITS = {"KB": 2**10, "MB": 2**20, "GB": 2**30, "TB": 2**40, "PB": 2**50}
 
 
-def label_values(deployment, key):
-    return [str(l.get("value")) for l in deployment.labels or [] if l.get("key") == key]
+def to_bytes(size, unit=None):
+    if isinstance(size, int) and not unit:
+        return size
+    if unit:
+        size = f"{size}{unit}"
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([KMGTP]B)\s*", str(size or "").upper())
+    return int(float(match.group(1)) * UNITS[match.group(2)]) if match else None
 
 
-def update_in_progress(client, deployment_id):
-    for execution in client.executions.list(deployment_id=deployment_id,
-                                            _include=["id", "workflow_id", "status"]):
-        if execution.get("workflow_id") == "update" and execution.get("status") in ACTIVE:
-            return execution
+def disk_sizes(disks):
+    return {d.get("name"): (d["storage"] if "storage_unit" not in d and isinstance(d.get("storage"), int)
+                            else to_bytes(d.get("storage"), d.get("storage_unit") or "GB"))
+            for d in disks or [] if isinstance(d, dict)}
+
+
+def updating(client, deployment_id):
+    return any(e.get("workflow_id") == "update" and e.get("status") in ACTIVE
+               for e in client.executions.list(deployment_id=deployment_id,
+                                                _include=["workflow_id", "status"]))
+
+
+def changes_something(client):
+    """Does the running update of this deployment change inputs or blueprint?"""
+    for update in client.deployment_updates.list(deployment_id=ctx.deployment.id,
+                                                 _sort="-created_at", _size=10):
+        if update.get("execution_id") != ctx.execution_id:
+            continue
+        old_bp = (update.get("old_blueprint_id"), update.get("old_blueprint_version"))
+        new_bp = (update.get("new_blueprint_id"), update.get("new_blueprint_version"))
+        new_inputs = update.get("new_inputs") or {}
+        old_inputs = update.get("old_inputs") or {}
+        changed = {k for k in new_inputs if new_inputs.get(k) != old_inputs.get(k)}
+        return bool(changed) or (new_bp[0] is not None and new_bp != old_bp)
+    return True  # can't tell: treat it as a change
+
+
+def shrinks(client):
+    """Disks the requested sizes would make smaller than the VM's."""
+    vms = client.node_instances.list(deployment_id=ctx.deployment.id, node_id="vm")
+    applied = ((vms[0].runtime_properties or {}).get("expected_configuration") or {}) if vms else {}
+    if not applied:
+        return []
+    found = []
+    new = to_bytes(inputs.get("storage"))
+    old = to_bytes((applied.get("resource_constraints") or {}).get("storage"))
+    if new and old and new < old:
+        found.append(f"OS disk {old // 2**30}GB -> {new // 2**30}GB")
+    old_disks, new_disks = disk_sizes(applied.get("additional_disks")), disk_sizes(inputs.get("additional_disks"))
+    for name, size in new_disks.items():
+        if old_disks.get(name) and size and size < old_disks[name]:
+            found.append(f"disk {name} {old_disks[name] // 2**30}GB -> {size // 2**30}GB")
+    return found
+
+
+def problem():
+    """Why this update must be refused, or None."""
+    client = get_rest_client()
+    if not updating(client, ctx.deployment.id):
+        return None  # install, or the check_drift workflow
+    deployment = client.deployments.get(ctx.deployment.id, _include=["id", "labels"])
+    labels = [(l.get("key"), str(l.get("value"))) for l in deployment.labels or []]
+    parents = [v for k, v in labels if k == "csys-obj-parent"]
+    if ("csys-component", "true") in [(k, v.lower()) for k, v in labels]:
+        if any(updating(client, p) for p in parents):
+            return None  # started by the parent: never fail it
+        if not changes_something(client):
+            return None  # a repair: changes nothing
+        return (f"This VM is managed by the parent deployment {', '.join(parents) or '(unknown)'}. "
+                "Update the parent deployment instead: a change made here directly is undone "
+                "by the parent's next update. Nothing was changed.")
+    refused = shrinks(client)
+    if refused:
+        return ("Disks can only grow (the Endpoint refuses to shrink them): " + "; ".join(refused)
+                + ". Nothing was changed; update again with sizes at least as large as now.")
     return None
 
 
 def main():
-    client = get_rest_client()
-    deployment_id = ctx.deployment.id
-    deployment = client.deployments.get(deployment_id, _include=["id", "labels"])
-    if "true" not in [v.lower() for v in label_values(deployment, "csys-component")]:
-        ctx.logger.info("update guard: standalone deployment, updates allowed")
-        ctx.returns(None)
-        return
-    if not update_in_progress(client, deployment_id):
-        ctx.logger.info("update guard: no update in progress (check_drift workflow)")
-        ctx.returns(None)
-        return
-
-    parents = label_values(deployment, "csys-obj-parent")
-    for parent in parents:
-        execution = update_in_progress(client, parent)
-        if execution:
-            ctx.logger.info(f"update guard: started by the parent's update "
-                            f"({parent}, execution {execution.get('id')})")
+    op = ctx.operation.name.split(".")[-1]
+    reason = problem()
+    if op == "check_drift":
+        if reason:
+            ctx.logger.warning(f"update guard: {reason}")
+            ctx.returns({"resource_id": "update_guard", "diff_count": 1, "diff": reason})
+        else:
             ctx.returns(None)
-            return
-    raise NonRecoverableError(
-        f"This VM is managed by the parent deployment {', '.join(parents) or '(unknown)'}. "
-        "Update the parent deployment instead: a change made here directly is undone "
-        "by the parent's next update. Nothing was changed.")
+    elif reason:
+        raise NonRecoverableError(reason)
+    else:
+        ctx.logger.info(f"update guard: {op}: nothing to refuse")
 
 
 main()

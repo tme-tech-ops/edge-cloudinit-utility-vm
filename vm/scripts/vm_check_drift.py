@@ -82,6 +82,41 @@ def drift(lines):
     })
 
 
+def shrinks(desired, applied):
+    """Disks the update would make smaller (the Endpoint refuses that)."""
+    found = []
+    if desired["storage"] and applied["storage"] and desired["storage"] < applied["storage"]:
+        found.append("OS disk")
+    old = {d["name"]: d["size"] for d in map(json.loads, applied["additional_disks"])}
+    for d in map(json.loads, desired["additional_disks"]):
+        if old.get(d["name"]) and d["size"] and d["size"] < old[d["name"]]:
+            found.append(f"disk {d['name']}")
+    return found
+
+
+def direct_update_of_managed_vm():
+    """A user's update of a deployment a parent manages (see update_guard.py)."""
+    try:
+        from dell.manager import get_rest_client
+        client = get_rest_client()
+        dep = client.deployments.get(ctx.deployment.id, _include=["id", "labels"])
+        labels = [(l.get("key"), str(l.get("value"))) for l in dep.labels or []]
+        if ("csys-component", "true") not in [(k, v.lower()) for k, v in labels]:
+            return False
+
+        def updating(dep_id):
+            return any(e.get("workflow_id") == "update"
+                       and e.get("status") in ("pending", "queued", "started", "scheduled")
+                       for e in client.executions.list(deployment_id=dep_id,
+                                                        _include=["workflow_id", "status"]))
+        if not updating(ctx.deployment.id):
+            return False
+        return not any(updating(v) for k, v in labels if k == "csys-obj-parent")
+    except Exception as err:  # can't tell: treat as allowed
+        ctx.logger.warning(f"vm: could not check who started the update ({err})")
+        return False
+
+
 def main():
     expected = ctx.instance.runtime_properties.get("expected_configuration")
     if not expected:
@@ -93,6 +128,19 @@ def main():
         drift([f"could not compare the VM config ({err})"])
         return
     lines = [f"{key}: {applied[key]!r} -> {desired[key]!r}" for key in desired if desired[key] != applied[key]]
+    # Never send the VM an update the Endpoint refuses, or one a parent doesn't
+    # know about: a failed VM update can turn into delete + create of the VM
+    # (automatic reinstall here, or in the parent). The VM is left as it is;
+    # update_guard reports the reason.
+    if lines and direct_update_of_managed_vm():
+        ctx.logger.warning("vm: update not applied - this VM is managed by its parent deployment")
+        ctx.returns(None)
+        return
+    refused = shrinks(desired, applied) if lines else []
+    if refused:
+        ctx.logger.warning("vm: update not applied - disks can only grow: " + ", ".join(refused))
+        ctx.returns(None)
+        return
     if lines:
         drift(lines)
     else:
