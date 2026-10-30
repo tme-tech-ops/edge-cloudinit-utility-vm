@@ -28,6 +28,19 @@ def to_bytes(size):
     return int(float(match.group(1)) * UNITS[match.group(2)]) if match else size
 
 
+def rule(r):
+    """A NAT rule with its values as strings (the plugin stores ports as integers)."""
+    return {k: str(v) for k, v in (r or {}).items() if v not in (None, "")}
+
+
+def disk_bytes(d):
+    """Additional disk size in bytes. The plugin stores bytes without a unit;
+    the node properties carry storage + storage_unit."""
+    if "storage_unit" not in d and isinstance(d.get("storage"), int):
+        return d["storage"]
+    return to_bytes(f"{d.get('storage')}{str(d.get('storage_unit') or 'GB').upper()}")
+
+
 def canonical(config):
     """The fields the edge-plugin sends in a VM update, in one comparable form."""
     limits = config.get("resource_constraints") or {}
@@ -42,14 +55,15 @@ def canonical(config):
         "network_settings": sorted(
             json.dumps({"name": n.get("name"), "segment_name": n.get("segment_name"),
                         "model_type": n.get("model_type") or "VIRTIO",
-                        "port_fwd_rules": n.get("port_fwd_rules") or []}, sort_keys=True)
+                        "port_fwd_rules": sorted(json.dumps(rule(r), sort_keys=True)
+                                                 for r in n.get("port_fwd_rules") or [])},
+                       sort_keys=True)
             for n in config.get("network_settings") or []),
         "ports": {k: sorted(json.dumps(p, sort_keys=True) for p in ports.get(k) or [])
                   for k in ("usb", "serial_port", "gpu", "video", "pcie")},
         "boot_order": list(config.get("boot_order") or []),
         "additional_disks": sorted(
-            json.dumps({"name": d.get("name"), "disk": d.get("disk"),
-                        "size": to_bytes(f"{d.get('storage')}{str(d.get('storage_unit') or 'GB').upper()}")},
+            json.dumps({"name": d.get("name"), "disk": d.get("disk"), "size": disk_bytes(d)},
                        sort_keys=True)
             for d in config.get("additional_disks") or []),
         "custom_parameters": config.get("custom_parameters") or {},
