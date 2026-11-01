@@ -38,6 +38,18 @@ built for 1.1 work with it.
   (segment and NAT rules), USB devices and additional disks.
 - Changed: `CHANGELOG.yaml` is now `CHANGELOG.md`.
 
+## 1.1.5.0
+
+Release and tag restructure (2026-11-01). No code change.
+
+- The `rel-4.2.0.0` tag is now `1.1.5.0`, on the same commit (`77b5644`): the
+  snapshot tested on DAP 2.0.0.1 with DDPC 4.2.0.0. That code predates this
+  changelog and the version labels.
+- The `rel-4.3.0.0` tag (1.1.0.4) is removed; 1.2.0.0 is the release for DAP
+  2.1.1.0 with DDPC 4.3.0.0.
+- Tags are now blueprint versions. Each has a GitHub release named after the
+  DAP and DDPC versions it was tested on, with an upload-ready zip.
+
 ## 1.1.0.4
 
 - Return the configured VM name from the `vm_name` capability using the
