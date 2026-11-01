@@ -23,11 +23,12 @@ parent built for 1.2 works with any later 1.x revision.
 
 ## Compatibility Matrix
 
-| Release | Compatible DDPC EdgeOS Version | Blueprint version |
-|---|---|---|
-| `rel-4.2.0.0` | `4.2.0.0` | 1.1.0.x |
-| `rel-4.3.0.0` | `4.3.0.0` | 1.1.0.x |
-| (next) | `4.3.0.0` | 1.2.0.0 |
+| Release | DAP | DDPC | Blueprint version |
+|---|---|---|---|
+| [`1.2.0.0`](https://github.com/tme-tech-ops/edge-cloudinit-utility-vm/releases/tag/1.2.0.0) | 2.1.1.0 | 4.3.0.0 | 1.2.0.0 |
+| [`1.1.5.0`](https://github.com/tme-tech-ops/edge-cloudinit-utility-vm/releases/tag/1.1.5.0) | 2.0.0.1 | 4.2.0.0 | 1.1.5.0 |
+
+Download the zip attached to the release that matches your DAP and DDPC versions (not "Source code"); its notes give the blueprint name, revision and upload order.
 
 ## Requirements
 This blueprint must be deployed with a VM image that supports ssh login to a shell environment via ssh-key authorization. The ssh authorized_keys must be pre-created on the VM. For that reason it is easiest to use this VM with a cloudinit configuration and pass the ssh public key info at runtime to the cloudinit config and the ssh private key for ssh authentication during vm_info.
